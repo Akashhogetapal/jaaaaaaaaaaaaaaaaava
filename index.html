@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="obsidian">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIP vs FD/RD — Interactive TVM Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root, [data-theme="obsidian"] {
+      --bg: #070b08;
+      --surface: rgba(13, 19, 15, 0.78);
+      --subtle: rgba(255, 255, 255, 0.055);
+      --border: rgba(255, 255, 255, 0.11);
+      --border-glow: rgba(22, 163, 74, 0.45);
+      --ink: #f5f7f5;
+      --muted: #98a89d;
+      --sip: #16a34a;
+      --sip-bright: #22c55e;
+      --sip-soft: rgba(22, 163, 74, 0.18);
+      --fd: #eab308;
+      --fd-soft: rgba(234, 179, 8, 0.16);
+      --principal: #94a3b8;
+      --shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.68);
+    }
+
+    [data-theme="paper"] {
+      --bg: #f6f8f7;
+      --surface: rgba(255, 255, 255, 0.80);
+      --subtle: rgba(15, 23, 20, 0.045);
+      --border: rgba(15, 23, 20, 0.10);
+      --border-glow: rgba(16, 185, 129, 0.35);
+      --ink: #0f1b17;
+      --muted: #52635d;
+      --sip: #059669;
+      --sip-soft: rgba(5, 150, 105, 0.12);
+      --fd: #d97706;
+      --fd-soft: rgba(217, 119, 6, 0.12);
+      --principal: #64748b;
+      --shadow: 0 20px 50px -18px rgba(15, 27, 23, 0.14);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      transition: background 0.35s ease, color 0.35s ease;
+    }
+
+    /* Fullscreen Living Wave Canvas */
+    #waveBg {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* Custom Interactive Moving Cursor */
+    #cursorDot, #cursorRing {
+      position: fixed;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 9999;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      transition: width 0.2s ease, height 0.2s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+    }
+
+    #cursorDot {
+      width: 7px;
+      height: 7px;
+      background: #ffffff;
+    }
+
+    #cursorRing {
+      width: 32px;
+      height: 32px;
+      border: 1.5px solid rgba(22, 163, 74, 0.8);
+      background: transparent;
+    }
+
+    #cursorRing.hovering {
+      width: 46px;
+      height: 46px;
+      border-color: #eab308;
+      background: rgba(234, 179, 8, 0.08);
+    }
+
+    #cursorRing.clicking {
+      width: 22px;
+      height: 22px;
+      border-color: #ffffff;
+      background: rgba(22, 163, 74, 0.2);
+    }
+
+    @media (pointer: coarse) {
+      #cursorDot, #cursorRing { display: none; }
+    }
+
+    .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+    .container {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 1140px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 22px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .header h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(1.95rem, 3.6vw, 2.95rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .title-word {
+      display: inline-block;
+      cursor: pointer;
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease, background 0.2s ease;
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+
+    .title-word.sip-word { color: var(--sip-bright); }
+    .title-word.sip-word:hover { transform: translateY(-4px) scale(1.04); background: var(--sip-soft); }
+
+    .title-word.vs-word { color: var(--muted); font-size: 0.65em; font-weight: 700; cursor: default; }
+
+    .title-word.fd-word { color: var(--fd); }
+    .title-word.fd-word:hover { transform: translateY(-4px) scale(1.04); background: var(--fd-soft); }
+
+    .title-word.sim-word { color: var(--ink); }
+    .title-word.sim-word:hover { transform: translateY(-4px); color: var(--sip-bright); }
+
+    .header p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+
+    .preset-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .pill {
+      padding: 8px 15px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      backdrop-filter: blur(14px);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .pill:hover { border-color: var(--sip); color: var(--ink); transform: translateY(-2px); }
+    .pill.active { background: var(--sip); color: #05130e; border-color: var(--sip); font-weight: 700; }
+
+    /* Main Stage */
+    .stage {
+      display: grid;
+      grid-template-columns: 355px 1fr;
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    @media (max-width: 900px) {
+      .stage { grid-template-columns: 1fr; }
+    }
+
+    /* Glassmorphic Clean Containers */
+    .card {
+      position: relative;
+      background: var(--surface);
+      backdrop-filter: blur(22px) saturate(125%);
+      -webkit-backdrop-filter: blur(22px) saturate(125%);
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      padding: 26px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: border-color 0.25s ease;
+    }
+
+    .card:hover { border-color: rgba(255, 255, 255, 0.2); }
+
+    /* Left Controls */
+    .controls {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 22px;
+    }
+
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--subtle);
+      padding: 4px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+
+    .mode-switch button {
+      border: none;
+      background: transparent;
+      padding: 9px;
+      border-radius: 10px;
+      font-size: 0.83rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s ease;
+    }
+
+    .mode-switch button.active {
+      background: var(--sip);
+      color: #05130e;
+      font-weight: 700;
+      box-shadow: 0 4px 14px rgba(52, 211, 153, 0.3);
+    }
+
+    .ctrl-block { display: flex; flex-direction: column; gap: 10px; }
+
+    .ctrl-head { display: flex; justify-content: space-between; align-items: center; }
+    .ctrl-head label { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+    .ctrl-readout { font-size: 1.18rem; font-weight: 700; color: var(--ink); }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--subtle);
+      border: 1px solid var(--border);
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--sip);
+      border: 3px solid var(--bg);
+      box-shadow: 0 0 14px rgba(52, 211, 153, 0.55);
+      transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+    .quick-taps { display: flex; gap: 6px; }
+
+    .tap {
+      flex: 1;
+      padding: 7px 0;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--subtle);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      transition: all 0.16s ease;
+    }
+
+    .tap:hover, .tap.active {
+      background: var(--sip-soft);
+      border-color: var(--sip);
+      color: var(--sip);
+      transform: translateY(-1px);
+    }
+
+    .rate-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .rate-box {
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      transition: transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .rate-box:hover { transform: translateY(-2px); border-color: var(--border-glow); }
+    .rate-box.sip-box { background: var(--sip-soft); }
+    .rate-box.fd-box { background: var(--fd-soft); }
+
+    .rate-box span {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .rate-stepper { display: flex; align-items: center; justify-content: space-between; }
+
+    .step-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      transition: transform 0.12s ease, background 0.15s ease;
+    }
+
+    .step-btn:hover { background: var(--subtle); }
+    .step-btn:active { transform: scale(0.88); }
+    .rate-num { font-size: 1.05rem; font-weight: 700; }
+
+    /* Right Visual Stage */
+    .visuals { display: flex; flex-direction: column; gap: 18px; }
+
+    .race-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .winner-badge {
+      background: var(--sip-soft);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      color: var(--sip);
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .winner-badge.pop { transform: scale(1.07); }
+
+    .play-btn {
+      background: var(--sip);
+      color: #05130e;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 999px;
+      font-size: 0.86rem;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 8px 24px -4px rgba(52, 211, 153, 0.45);
+      transition: transform 0.15s ease, filter 0.15s ease;
+    }
+
+    .play-btn:hover { transform: translateY(-2px); filter: brightness(1.08); }
+    .play-btn:active { transform: scale(0.95); }
+
+    /* Stacked Principal + Profit Race Bars */
+    .race-bars { display: flex; flex-direction: column; gap: 14px; }
+
+    .bar-row {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding: 12px 16px;
+      border-radius: 16px;
+      background: var(--subtle);
+      border: 1px solid var(--border);
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .bar-row:hover { border-color: rgba(255, 255, 255, 0.2); transform: translateX(4px); }
+
+    .bar-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .bar-name { font-size: 0.88rem; font-weight: 700; }
+    .bar-gain { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+    .bar-amount { font-size: 1.32rem; font-weight: 700; }
+
+    .track {
+      height: 18px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 999px;
+      overflow: hidden;
+      display: flex;
+      border: 1px solid var(--border);
+    }
+
+    .fill-principal {
+      height: 100%;
+      background: var(--principal);
+      opacity: 0.42;
+      transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .fill-gain {
+      height: 100%;
+      transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .fill-gain.sip { background: linear-gradient(90deg, #15803d, #22c55e); }
+    .fill-gain.fd { background: linear-gradient(90deg, #ca8a04, #facc15); }
+
+    /* Interactive Year Scrubber */
+    .scrubber-box {
+      background: var(--subtle);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .scrubber-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* Interactive Chart */
+    .chart-box { height: 225px; width: 100%; cursor: crosshair; }
+    .chart-hint { text-align: right; font-size: 0.74rem; color: var(--muted); margin-top: -10px; }
+
+    /* Bottom Strip */
+    .bottom-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 18px;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .formula-trigger {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      padding: 8px 15px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.18s ease;
+    }
+
+    .formula-trigger:hover { border-color: var(--sip); color: var(--sip); transform: translateY(-1px); }
+
+    /* Floating Tweaks Panel */
+    .tweaks-fab {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 60;
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      color: var(--ink);
+      border: 1px solid var(--border-glow);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+      transition: transform 0.16s ease;
+    }
+
+    .tweaks-fab:hover { transform: translateY(-2px); }
+
+    .tweaks-panel {
+      position: fixed;
+      right: 22px;
+      bottom: 72px;
+      width: 265px;
+      background: var(--surface);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      z-index: 60;
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tweaks-panel.open { display: flex; }
+
+    .tweak-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+
+    .theme-dots { display: flex; gap: 8px; }
+
+    .t-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+
+    .t-dot:hover { transform: scale(1.15); }
+    .t-dot.active { border-color: var(--sip); box-shadow: 0 0 0 2px var(--sip-soft); }
+
+    /* Formula Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 10, 9, 0.65);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 100;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      backdrop-filter: blur(26px);
+      border: 1px solid var(--border-glow);
+      border-radius: 24px;
+      padding: 26px;
+      max-width: 540px;
+      width: 100%;
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+    }
+
+    .modal h3 {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 1.7rem;
+      font-weight: 400;
+      margin-bottom: 14px;
+    }
+
+    .eq-card {
+      background: var(--subtle);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      font-size: 0.86rem;
+    }
+
+    .eq-card strong { display: block; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <!-- Living White & Green Flowing Waves Canvas -->
+  <canvas id="waveBg"></canvas>
+  <div id="cursorRing"></div>
+  <div id="cursorDot"></div>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div>
+        <h1>
+          <span class="title-word sip-word" onclick="document.querySelector('[data-mode=monthly]').click()">SIP</span>
+          <span class="title-word vs-word">vs</span>
+          <span class="title-word fd-word" onclick="document.querySelector('[data-mode=lumpsum]').click()">FD / RD</span>
+          <span class="title-word sim-word" onclick="document.getElementById('playBtn').click()">Simulator</span>
+        </h1>
+        <p>Click any title word, chart point, or press Play to simulate compounding live</p>
+      </div>
+      <div class="preset-pills">
+        <button class="pill active" data-preset="ppt5">Slide 7 · 5 Yrs</button>
+        <button class="pill" data-preset="ppt10">Slide 8 · 10 Yrs</button>
+        <button class="pill" data-preset="tvm3">Slide 3 · Lump Sum</button>
+      </div>
+    </header>
+
+    <!-- Main 2-Column Stage -->
+    <main class="stage">
+      <!-- Left: Tactile Controls -->
+      <section class="card controls">
+        <div class="mode-switch">
+          <button class="active" data-mode="monthly">Monthly (SIP vs RD)</button>
+          <button data-mode="lumpsum">Lump Sum (FD)</button>
+        </div>
+
+        <div class="ctrl-block">
+          <div class="ctrl-head">
+            <label id="amtLabel">Monthly Investment</label>
+            <span class="ctrl-readout mono" id="amtVal">₹5,000</span>
+          </div>
+          <input type="range" id="amtSlider" min="1000" max="25000" step="500" value="5000" />
+          <div class="quick-taps">
+            <button class="tap" data-amt="2000">₹2k</button>
+            <button class="tap active" data-amt="5000">₹5k</button>
+            <button class="tap" data-amt="10000">₹10k</button>
+            <button class="tap" data-amt="20000">₹20k</button>
+          </div>
+        </div>
+
+        <div class="ctrl-block">
+          <div class="ctrl-head">
+            <label>Time Horizon</label>
+            <span class="ctrl-readout mono" id="yrVal">5 Years</span>
+          </div>
+          <input type="range" id="yrSlider" min="1" max="20" step="1" value="5" />
+          <div class="quick-taps">
+            <button class="tap" data-yr="3">3Y</button>
+            <button class="tap active" data-yr="5">5Y</button>
+            <button class="tap" data-yr="10">10Y</button>
+            <button class="tap" data-yr="15">15Y</button>
+          </div>
+        </div>
+
+        <div class="rate-row">
+          <div class="rate-box sip-box">
+            <span>SIP Return</span>
+            <div class="rate-stepper">
+              <button class="step-btn" data-step="sip" data-dir="-1">−</button>
+              <span class="rate-num mono" style="color:var(--sip);" id="sipRateNum">10%</span>
+              <button class="step-btn" data-step="sip" data-dir="1">+</button>
+            </div>
+          </div>
+          <div class="rate-box fd-box">
+            <span id="fdRateTitle">RD Interest</span>
+            <div class="rate-stepper">
+              <button class="step-btn" data-step="fd" data-dir="-1">−</button>
+              <span class="rate-num mono" style="color:var(--fd);" id="fdRateNum">7%</span>
+              <button class="step-btn" data-step="fd" data-dir="1">+</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Live Visual Race + Interactive Chart -->
+      <section class="card visuals">
+        <div class="race-header">
+          <div class="winner-badge mono" id="winnerBadge">SIP leads by +₹29,220</div>
+          <button class="play-btn" id="playBtn">
+            <span id="playIcon">▶</span>
+            <span id="playText">Play Year-by-Year</span>
+          </button>
+        </div>
+
+        <!-- Stacked Principal + Profit Race Bars -->
+        <div class="race-bars">
+          <div class="bar-row">
+            <div class="bar-meta">
+              <div>
+                <span class="bar-name" style="color:var(--sip);" id="sipBarLabel">SIP (10%)</span>
+                <span class="bar-gain mono" id="sipGainLabel"> · Gain +₹87,185</span>
+              </div>
+              <span class="bar-amount mono" id="sipBarVal">₹3,87,185</span>
+            </div>
+            <div class="track">
+              <div class="fill-principal" id="sipPrincipalFill" style="width:77%;"></div>
+              <div class="fill-gain sip" id="sipGainFill" style="width:23%;"></div>
+            </div>
+          </div>
+
+          <div class="bar-row">
+            <div class="bar-meta">
+              <div>
+                <span class="bar-name" style="color:var(--fd);" id="fdBarLabel">RD (7%)</span>
+                <span class="bar-gain mono" id="fdGainLabel"> · Gain +₹57,965</span>
+              </div>
+              <span class="bar-amount mono" id="fdBarVal">₹3,57,965</span>
+            </div>
+            <div class="track">
+              <div class="fill-principal" id="fdPrincipalFill" style="width:77%;"></div>
+              <div class="fill-gain fd" id="fdGainFill" style="width:15%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Year Scrubber -->
+        <div class="scrubber-box">
+          <span class="scrubber-label mono" id="scrubLabel">Year 5 / 5</span>
+          <input type="range" id="yearScrubber" min="1" max="5" step="1" value="5" />
+          <span class="scrubber-label mono" id="investedLabel">Invested: ₹3,00,000</span>
+        </div>
+
+        <!-- Interactive Click-to-Inspect Chart -->
+        <div class="chart-box">
+          <canvas id="simChart"></canvas>
+        </div>
+        <div class="chart-hint">Click any year on the chart to jump directly to that milestone</div>
+      </section>
+    </main>
+
+    <!-- Minimal Bottom Strip -->
+    <div class="bottom-strip">
+      <div class="mono">
+        Rule of 72 Doubling: <strong style="color:var(--sip);" id="r72Sip">7.2 yrs</strong> (SIP) vs <strong style="color:var(--fd);" id="r72Fd">10.3 yrs</strong> (RD/FD)
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span>Ananya · Dakshayini · H Akash · Lakshitha · Manoj</span>
+        <button class="formula-trigger" id="openFormula">View Live Formula</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Tweaks Panel -->
+  <button class="tweaks-fab" id="tweaksToggle">Tweaks</button>
+  <div class="tweaks-panel" id="tweaksPanel">
+    <div style="font-weight:700;font-size:0.9rem;">Tweaks</div>
+    <div class="tweak-row">
+      <span>Theme</span>
+      <div class="theme-dots">
+        <button class="t-dot active" data-set-theme="obsidian" style="background:#0c1412;" title="Dark Obsidian"></button>
+        <button class="t-dot" data-set-theme="paper" style="background:#f6f8f7;" title="Light Paper"></button>
+      </div>
+    </div>
+    <div class="tweak-row">
+      <span>Wave Motion</span>
+      <input type="range" id="waveSpeed" min="0.2" max="2.5" step="0.1" value="1" style="width:100px;" />
+    </div>
+    <div class="tweak-row">
+      <span>Inflation (6%)</span>
+      <input type="checkbox" id="inflationToggle" />
+    </div>
+    <div class="tweak-row">
+      <span>Tactile Sound</span>
+      <input type="checkbox" id="soundToggle" checked />
+    </div>
+  </div>
+
+  <!-- Live Formula Modal -->
+  <div class="modal-backdrop" id="formulaModal">
+    <div class="modal">
+      <h3>Live TVM Formula (Slide 5 & 7)</h3>
+      <div class="eq-card">
+        <strong style="color:var(--sip);">SIP / Equity Future Value</strong>
+        <div class="mono" id="mSipEq">FV = P × [(1 + i)ⁿ − 1] ÷ i</div>
+        <div class="mono" style="margin-top:6px;color:var(--sip);font-weight:700;" id="mSipCalc"></div>
+      </div>
+      <div class="eq-card">
+        <strong style="color:var(--fd);">RD / FD Future Value</strong>
+        <div class="mono" id="mFdEq">FV = P × [(1 + i)ⁿ − 1] ÷ i</div>
+        <div class="mono" style="margin-top:6px;color:var(--fd);font-weight:700;" id="mFdCalc"></div>
+      </div>
+      <button class="pill active" id="closeFormula" style="width:100%;margin-top:6px;">Close</button>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. LIVING GREEN + WHITE + GOLD INTERACTIVE CONSTELLATION & AURORA ORBS
+    // =========================================================================
+    const waveCanvas = document.getElementById('waveBg');
+    const wCtx = waveCanvas.getContext('2d');
+    let wWidth, wHeight, waveTime = 0, waveSpeedMult = 1;
+    const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, px: -999, py: -999 };
+
+    const paletteDark = [
+      { r: 22, g: 163, b: 74 },   // Rich Kelly/Forest Green
+      { r: 234, g: 179, b: 8 },   // Rich Gold
+      { r: 255, g: 255, b: 255 }  // Crisp White
+    ];
+    const paletteLight = [
+      { r: 5, g: 150, b: 105 },   // Deep Emerald
+      { r: 217, g: 119, b: 6 },   // Rich Gold
+      { r: 100, g: 116, b: 139 }  // Soft Slate-White
+    ];
+
+    let particles = [];
+    function initParticles() {
+      const count = Math.min(75, Math.max(42, Math.floor((wWidth * wHeight) / 22000)));
+      particles = Array.from({ length: count }, (_, i) => ({
+        x: Math.random() * wWidth,
+        y: Math.random() * wHeight,
+        vx: (Math.random() - 0.5) * 0.55,
+        vy: (Math.random() - 0.5) * 0.55,
+        size: Math.random() * 2.4 + 1.2,
+        colorIdx: i % 3,
+        phase: Math.random() * Math.PI * 2
+      }));
+    }
+
+    function resizeWave() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      wWidth = window.innerWidth;
+      wHeight = window.innerHeight;
+      waveCanvas.width = wWidth * dpr;
+      waveCanvas.height = wHeight * dpr;
+      wCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      initParticles();
+    }
+    window.addEventListener('resize', resizeWave);
+    resizeWave();
+
+    // Custom smooth moving cursor follower
+    const cDot = document.getElementById('cursorDot');
+    const cRing = document.getElementById('cursorRing');
+    const cur = { x: window.innerWidth / 2, y: window.innerHeight / 2, rx: window.innerWidth / 2, ry: window.innerHeight / 2 };
+
+    window.addEventListener('mousemove', (e) => {
+      cur.x = e.clientX;
+      cur.y = e.clientY;
+      mouse.px = e.clientX;
+      mouse.py = e.clientY;
+      cDot.style.left = `${cur.x}px`;
+      cDot.style.top = `${cur.y}px`;
+      mouse.tx = e.clientX / window.innerWidth;
+      mouse.ty = e.clientY / window.innerHeight;
+    });
+
+    window.addEventListener('mousedown', () => cRing.classList.add('clicking'));
+    window.addEventListener('mouseup', () => cRing.classList.remove('clicking'));
+
+    document.addEventListener('mouseover', (e) => {
+      if (e.target.closest('button, input, a, .bar-row')) cRing.classList.add('hovering');
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (e.target.closest('button, input, a, .bar-row')) cRing.classList.remove('hovering');
+    });
+
+    function animateCursor() {
+      cur.rx += (cur.x - cur.rx) * 0.16;
+      cur.ry += (cur.y - cur.ry) * 0.16;
+      cRing.style.left = `${cur.rx}px`;
+      cRing.style.top = `${cur.ry}px`;
+      requestAnimationFrame(animateCursor);
+    }
+    animateCursor();
+
+    function animateWaves() {
+      mouse.x += (mouse.tx - mouse.x) * 0.05;
+      mouse.y += (mouse.ty - mouse.y) * 0.05;
+
+      const isDark = document.documentElement.getAttribute('data-theme') !== 'paper';
+      const pal = isDark ? paletteDark : paletteLight;
+      wCtx.clearRect(0, 0, wWidth, wHeight);
+
+      const boost = state.playing ? 1.8 : 1;
+      waveTime += 0.012 * waveSpeedMult * boost;
+
+      // Update & Draw Constellation Particles (matte crisp, no shining orbs)
+      const linkDist = 135;
+      const mouseDist = 180;
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x += p.vx * waveSpeedMult * boost;
+        p.y += p.vy * waveSpeedMult * boost;
+
+        if (p.x < 0 || p.x > wWidth) p.vx *= -1;
+        if (p.y < 0 || p.y > wHeight) p.vy *= -1;
+
+        // Gentle magnetic attraction/swirl near cursor
+        const dxM = mouse.px - p.x;
+        const dyM = mouse.py - p.y;
+        const distM = Math.hypot(dxM, dyM);
+        if (distM < mouseDist && distM > 20) {
+          p.x += (dxM / distM) * 0.35;
+          p.y += (dyM / distM) * 0.35;
+        }
+
+        const c = pal[p.colorIdx];
+        const pulse = 0.65 + 0.35 * Math.sin(waveTime * 2.5 + p.phase);
+
+        // Draw links to nearby particles
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j];
+          const d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < linkDist) {
+            const alpha = (1 - d / linkDist) * (isDark ? 0.24 : 0.18);
+            wCtx.beginPath();
+            wCtx.moveTo(p.x, p.y);
+            wCtx.lineTo(q.x, q.y);
+            wCtx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
+            wCtx.lineWidth = 1;
+            wCtx.stroke();
+          }
+        }
+
+        // Draw luminous link to cursor
+        if (distM < mouseDist) {
+          const alpha = (1 - distM / mouseDist) * (isDark ? 0.42 : 0.30);
+          wCtx.beginPath();
+          wCtx.moveTo(p.x, p.y);
+          wCtx.lineTo(mouse.px, mouse.py);
+          wCtx.strokeStyle = `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
+          wCtx.lineWidth = 1.15;
+          wCtx.stroke();
+        }
+
+        // Draw glowing node
+        wCtx.beginPath();
+        wCtx.arc(p.x, p.y, p.size * pulse, 0, Math.PI * 2);
+        wCtx.fillStyle = `rgba(${c.r}, ${c.g}, ${c.b}, ${isDark ? 0.85 : 0.7})`;
+        wCtx.fill();
+      }
+
+      requestAnimationFrame(animateWaves);
+    }
+
+    // =========================================================================
+    // 2. SIMULATOR ENGINE + TACTILE AUDIO + INTERACTIVE CHART
+    // =========================================================================
+    const fmtINR = (n) => (n < 0 ? '-' : '') + '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
+
+    let audioCtx;
+    function playTick(freq = 520) {
+      if (!document.getElementById('soundToggle').checked) return;
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.035, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.06);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.06);
+      } catch (_) {}
+    }
+
+    const state = {
+      mode: 'monthly',
+      amount: 5000,
+      years: 5,
+      currentYear: 5,
+      sipRate: 10,
+      fdRate: 7,
+      inflation: false,
+      playing: false,
+      timer: null
+    };
+
+    const calcMonthly = (P, r, y) => {
+      const i = r / 12 / 100, n = y * 12;
+      return i === 0 ? P * n : P * ((Math.pow(1 + i, n) - 1) / i);
+    };
+    const calcLump = (P, r, y) => P * Math.pow(1 + r / 100, y);
+    const adjInf = (v, y) => state.inflation ? v / Math.pow(1.06, y) : v;
+
+    const ctx = document.getElementById('simChart').getContext('2d');
+    let chart;
+
+    function update() {
+      const y = state.currentYear;
+      const isM = state.mode === 'monthly';
+
+      document.getElementById('amtLabel').textContent = isM ? 'Monthly Investment' : 'Lump Sum Principal';
+      document.getElementById('fdRateTitle').textContent = isM ? 'RD Interest' : 'FD Interest';
+      document.getElementById('amtVal').textContent = fmtINR(state.amount);
+      document.getElementById('yrVal').textContent = `${state.years} ${state.years === 1 ? 'Year' : 'Years'}`;
+      document.getElementById('sipRateNum').textContent = `${state.sipRate}%`;
+      document.getElementById('fdRateNum').textContent = `${state.fdRate}%`;
+
+      const scrubber = document.getElementById('yearScrubber');
+      scrubber.max = state.years;
+      scrubber.value = y;
+      document.getElementById('scrubLabel').textContent = `Year ${y} / ${state.years}`;
+
+      const invested = isM ? state.amount * 12 * y : state.amount;
+      const rawSip = isM ? calcMonthly(state.amount, state.sipRate, y) : calcLump(state.amount, state.sipRate, y);
+      const rawFd = isM ? calcMonthly(state.amount, state.fdRate, y) : calcLump(state.amount, state.fdRate, y);
+      const sipVal = adjInf(rawSip, y);
+      const fdVal = adjInf(rawFd, y);
+      const diff = sipVal - fdVal;
+
+      const maxVal = Math.max(sipVal, fdVal, invested, 1);
+      const sipP = Math.min(invested, sipVal) / maxVal * 100;
+      const sipG = Math.max(0, sipVal - invested) / maxVal * 100;
+      const fdP = Math.min(invested, fdVal) / maxVal * 100;
+      const fdG = Math.max(0, fdVal - invested) / maxVal * 100;
+
+      document.getElementById('sipBarLabel').textContent = `${isM ? 'SIP' : 'Equity'} (${state.sipRate}%)`;
+      document.getElementById('fdBarLabel').textContent = `${isM ? 'RD' : 'FD'} (${state.fdRate}%)`;
+      document.getElementById('sipGainLabel').textContent = ` · Gain ${sipVal - invested >= 0 ? '+' : ''}${fmtINR(sipVal - invested)}`;
+      document.getElementById('fdGainLabel').textContent = ` · Gain ${fdVal - invested >= 0 ? '+' : ''}${fmtINR(fdVal - invested)}`;
+      document.getElementById('sipBarVal').textContent = fmtINR(sipVal);
+      document.getElementById('fdBarVal').textContent = fmtINR(fdVal);
+
+      document.getElementById('sipPrincipalFill').style.width = `${sipP}%`;
+      document.getElementById('sipGainFill').style.width = `${sipG}%`;
+      document.getElementById('fdPrincipalFill').style.width = `${fdP}%`;
+      document.getElementById('fdGainFill').style.width = `${fdG}%`;
+      document.getElementById('investedLabel').textContent = `Invested: ${fmtINR(invested)}`;
+
+      const badge = document.getElementById('winnerBadge');
+      badge.textContent = diff >= 0 ? `SIP leads by +${fmtINR(diff)}` : `FD/RD leads by +${fmtINR(-diff)}`;
+      badge.classList.remove('pop');
+      void badge.offsetWidth;
+      badge.classList.add('pop');
+
+      document.getElementById('r72Sip').textContent = `${(72 / state.sipRate).toFixed(1)} yrs`;
+      document.getElementById('r72Fd').textContent = `${(72 / state.fdRate).toFixed(1)} yrs`;
+
+      if (isM) {
+        const iS = (state.sipRate / 12 / 100).toFixed(5);
+        const iF = (state.fdRate / 12 / 100).toFixed(5);
+        const n = y * 12;
+        document.getElementById('mSipEq').textContent = 'FV = P × [(1 + i)ⁿ − 1] ÷ i';
+        document.getElementById('mFdEq').textContent = 'FV = P × [(1 + i)ⁿ − 1] ÷ i';
+        document.getElementById('mSipCalc').textContent = `${state.amount.toLocaleString('en-IN')} × [(1 + ${iS})^${n} − 1] ÷ ${iS} = ${fmtINR(rawSip)}`;
+        document.getElementById('mFdCalc').textContent = `${state.amount.toLocaleString('en-IN')} × [(1 + ${iF})^${n} − 1] ÷ ${iF} = ${fmtINR(rawFd)}`;
+      } else {
+        document.getElementById('mSipEq').textContent = 'FV = P × (1 + r)ⁿ';
+        document.getElementById('mFdEq').textContent = 'FV = P × (1 + r)ⁿ';
+        document.getElementById('mSipCalc').textContent = `${state.amount.toLocaleString('en-IN')} × (1 + ${(state.sipRate/100).toFixed(2)})^${y} = ${fmtINR(rawSip)}`;
+        document.getElementById('mFdCalc').textContent = `${state.amount.toLocaleString('en-IN')} × (1 + ${(state.fdRate/100).toFixed(2)})^${y} = ${fmtINR(rawFd)}`;
+      }
+
+      const labels = [], sData = [], fData = [];
+      for (let yr = 1; yr <= state.years; yr++) {
+        labels.push(`Y${yr}`);
+        sData.push(adjInf(isM ? calcMonthly(state.amount, state.sipRate, yr) : calcLump(state.amount, state.sipRate, yr), yr));
+        fData.push(adjInf(isM ? calcMonthly(state.amount, state.fdRate, yr) : calcLump(state.amount, state.fdRate, yr), yr));
+      }
+
+      const cs = getComputedStyle(document.documentElement);
+      const sipC = cs.getPropertyValue('--sip').trim();
+      const fdC = cs.getPropertyValue('--fd').trim();
+      const mutedC = cs.getPropertyValue('--muted').trim();
+      const borderC = cs.getPropertyValue('--border').trim();
+      const pointRadii = labels.map((_, idx) => idx + 1 === y ? 7 : 3);
+
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: isM ? 'SIP' : 'Equity', data: sData, borderColor: sipC, backgroundColor: 'rgba(52, 211, 153, 0.14)', fill: true, tension: 0.35, borderWidth: 2.5, pointRadius: pointRadii, pointHoverRadius: 8 },
+            { label: isM ? 'RD' : 'FD', data: fData, borderColor: fdC, fill: false, tension: 0.35, borderWidth: 2.5, pointRadius: pointRadii, pointHoverRadius: 8 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: state.playing ? 120 : 250 },
+          onClick: (_, elements) => {
+            if (elements.length > 0) {
+              stopPlay();
+              state.currentYear = elements[0].index + 1;
+              playTick(620);
+              update();
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${fmtINR(c.parsed.y)}` } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: mutedC, font: { family: 'JetBrains Mono', size: 11 } } },
+            y: {
+              grid: { color: borderC },
+              ticks: {
+                color: mutedC,
+                font: { family: 'JetBrains Mono', size: 11 },
+                callback: (v) => v >= 100000 ? '₹' + (v / 100000).toFixed(1) + 'L' : '₹' + Math.round(v / 1000) + 'k'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function stopPlay() {
+      clearInterval(state.timer);
+      state.playing = false;
+      document.getElementById('playIcon').textContent = '▶';
+      document.getElementById('playText').textContent = 'Play Year-by-Year';
+    }
+
+    document.getElementById('amtSlider').addEventListener('input', (e) => {
+      stopPlay(); state.amount = Number(e.target.value);
+      document.querySelectorAll('[data-amt]').forEach(b => b.classList.toggle('active', Number(b.dataset.amt) === state.amount));
+      update();
+    });
+
+    document.getElementById('yrSlider').addEventListener('input', (e) => {
+      stopPlay(); state.years = Number(e.target.value); state.currentYear = state.years;
+      document.querySelectorAll('[data-yr]').forEach(b => b.classList.toggle('active', Number(b.dataset.yr) === state.years));
+      update();
+    });
+
+    document.getElementById('yearScrubber').addEventListener('input', (e) => {
+      stopPlay(); state.currentYear = Number(e.target.value);
+      playTick(440 + state.currentYear * 22);
+      update();
+    });
+
+    document.querySelectorAll('[data-amt]').forEach(b => b.addEventListener('click', () => {
+      stopPlay(); state.amount = Number(b.dataset.amt);
+      document.getElementById('amtSlider').value = state.amount;
+      document.querySelectorAll('[data-amt]').forEach(x => x.classList.toggle('active', x === b));
+      playTick(540); update();
+    }));
+
+    document.querySelectorAll('[data-yr]').forEach(b => b.addEventListener('click', () => {
+      stopPlay(); state.years = Number(b.dataset.yr); state.currentYear = state.years;
+      document.getElementById('yrSlider').value = state.years;
+      document.querySelectorAll('[data-yr]').forEach(x => x.classList.toggle('active', x === b));
+      playTick(580); update();
+    }));
+
+    document.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => {
+      stopPlay();
+      const k = b.dataset.step === 'sip' ? 'sipRate' : 'fdRate';
+      state[k] = Math.min(20, Math.max(2, state[k] + Number(b.dataset.dir)));
+      playTick(b.dataset.dir > 0 ? 640 : 460); update();
+    }));
+
+    document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+      stopPlay(); state.mode = b.dataset.mode;
+      document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x === b));
+      playTick(520); update();
+    }));
+
+    const presets = {
+      ppt5: { mode: 'monthly', amount: 5000, years: 5, sipRate: 10, fdRate: 7 },
+      ppt10: { mode: 'monthly', amount: 5000, years: 10, sipRate: 10, fdRate: 7 },
+      tvm3: { mode: 'lumpsum', amount: 10000, years: 3, sipRate: 10, fdRate: 7 }
+    };
+
+    document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+      stopPlay(); Object.assign(state, presets[b.dataset.preset]); state.currentYear = state.years;
+      document.getElementById('amtSlider').value = state.amount;
+      document.getElementById('yrSlider').value = state.years;
+      document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('active', x.dataset.mode === state.mode));
+      document.querySelectorAll('[data-preset]').forEach(x => x.classList.toggle('active', x === b));
+      playTick(660); update();
+    }));
+
+    document.getElementById('playBtn').addEventListener('click', () => {
+      if (state.playing) { stopPlay(); return; }
+      state.playing = true; state.currentYear = 1;
+      document.getElementById('playIcon').textContent = '■';
+      document.getElementById('playText').textContent = 'Stop';
+      playTick(480); update();
+      state.timer = setInterval(() => {
+        if (state.currentYear >= state.years) { stopPlay(); playTick(760); return; }
+        state.currentYear++;
+        playTick(460 + state.currentYear * 24);
+        update();
+      }, 380);
+    });
+
+    // Tweaks panel
+    document.getElementById('tweaksToggle').addEventListener('click', () => {
+      document.getElementById('tweaksPanel').classList.toggle('open');
+      playTick(500);
+    });
+
+    document.querySelectorAll('[data-set-theme]').forEach(dot => dot.addEventListener('click', () => {
+      document.documentElement.setAttribute('data-theme', dot.dataset.setTheme);
+      document.querySelectorAll('[data-set-theme]').forEach(d => d.classList.toggle('active', d === dot));
+      playTick(600); update();
+    }));
+
+    document.getElementById('waveSpeed').addEventListener('input', (e) => {
+      waveSpeedMult = Number(e.target.value);
+    });
+
+    document.getElementById('inflationToggle').addEventListener('change', (e) => {
+      state.inflation = e.target.checked;
+      playTick(540); update();
+    });
+
+    const modal = document.getElementById('formulaModal');
+    document.getElementById('openFormula').addEventListener('click', () => { modal.classList.add('open'); playTick(560); });
+    document.getElementById('closeFormula').addEventListener('click', () => modal.classList.remove('open'));
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
+
+    animateWaves();
+    update();
+  </script>
+</body>
+</html>
